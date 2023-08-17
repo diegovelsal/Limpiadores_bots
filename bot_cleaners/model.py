@@ -26,11 +26,13 @@ class Estacion(Agent):
 # Clase Robot 
 class RobotLimpieza(Agent):
     # Inicialización del robot
-    def __init__(self, unique_id, model):
+    def __init__(self, unique_id, model, posiciones_estaciones):
         super().__init__(unique_id, model)
         self.sig_pos = None
         self.movimientos = 0
-        self.carga = 100
+        self.buscando_estacion = None
+        self.posiciones_estaciones = posiciones_estaciones
+        self.carga = 30
 
     # Método para limpiar una celda sucia al azar de las que se encuentran vecinas al robot
     def limpiar_una_celda(self, lista_de_celdas_sucias):
@@ -48,6 +50,45 @@ class RobotLimpieza(Agent):
         return [vecino for vecino in lista_de_vecinos
                         if isinstance(vecino, Celda) and vecino.sucia]
 
+    def buscar_estacion(self):
+        # Calcula la distancia a cada estación
+        distancias = []
+        for pos in self.posiciones_estaciones:
+            distancias.append((abs(self.pos[0] - pos[0]) + abs(self.pos[1] - pos[1]), pos))
+
+        # Ordena las distancias de menor a mayor
+        distancias.sort(key=lambda tup: tup[0])
+
+        print(distancias[0][1])
+        # Selecciona la estación más cercana
+        self.buscando_estacion = distancias[0][1]
+
+    def moverse_a_estacion(self):
+        # Se mueve a la estación más cercana, debe moverse de una celda a la vez
+        print(self.pos[0], self.pos[1], self.buscando_estacion[0], self.buscando_estacion[1])
+        if self.pos[0] < self.buscando_estacion[0] and self.pos[1] < self.buscando_estacion[1]:
+            self.sig_pos = tuple([self.pos[0] + 1, self.pos[1] + 1])
+        elif self.pos[0] < self.buscando_estacion[0] and self.pos[1] > self.buscando_estacion[1]:
+            self.sig_pos = tuple([self.pos[0] + 1, self.pos[1] - 1])
+        elif self.pos[0] > self.buscando_estacion[0] and self.pos[1] < self.buscando_estacion[1]:
+            self.sig_pos = tuple([self.pos[0] - 1, self.pos[1] + 1])
+        elif self.pos[0] > self.buscando_estacion[0] and self.pos[1] > self.buscando_estacion[1]:
+            self.sig_pos = tuple([self.pos[0] - 1, self.pos[1] - 1])
+        elif self.pos[0] < self.buscando_estacion[0]:
+            self.sig_pos = tuple([self.pos[0] + 1, self.pos[1]])
+        elif self.pos[0] > self.buscando_estacion[0]:
+            self.sig_pos = tuple([self.pos[0] - 1, self.pos[1]])
+        elif self.pos[1] < self.buscando_estacion[1]:
+            self.sig_pos = tuple([self.pos[0], self.pos[1] + 1])
+        elif self.pos[1] > self.buscando_estacion[1]:
+            self.sig_pos = tuple([self.pos[0], self.pos[1] - 1])
+        else:
+            self.carga += 25
+            if (self.carga > 100):
+                self.carga = 100
+                self.buscando_estacion = None
+            self.sig_pos = self.pos
+            
     # Step del sistema
     def step(self):
         # Obtiene los vecinos mediante lo de mesa
@@ -62,11 +103,20 @@ class RobotLimpieza(Agent):
         # Obtiene las celdas sucias de los vecinos que quedaron
         celdas_sucias = self.buscar_celdas_sucia(vecinos)
 
-        # Robot hace una acción dependiendo de si hay o no celdas sucias en los vecinos
-        if len(celdas_sucias) == 0:
-            self.seleccionar_nueva_pos(vecinos)
+        # Disminuye la carga del robot
+        if self.carga > 20 and not self.buscando_estacion:
+            # Robot hace una acción dependiendo de si hay o no celdas sucias en los vecinos
+            if len(celdas_sucias) == 0:
+                self.seleccionar_nueva_pos(vecinos)
+            else:
+                self.limpiar_una_celda(celdas_sucias)
+            self.carga -= 1
         else:
-            self.limpiar_una_celda(celdas_sucias)
+            if self.buscando_estacion is None:
+                self.buscar_estacion()
+                self.moverse_a_estacion()
+            else:
+                self.moverse_a_estacion()
 
     # Método con el que se confirma el movimiento del robot
     def advance(self):
@@ -74,10 +124,7 @@ class RobotLimpieza(Agent):
         if self.pos != self.sig_pos:
             self.movimientos += 1
 
-        # Disminuye la carga del robot
-        if self.carga > 0:
-            self.carga -= 1
-            self.model.grid.move_agent(self, self.sig_pos)
+        self.model.grid.move_agent(self, self.sig_pos)
 
 # Modelo del sistema
 class Habitacion(Model):
@@ -111,7 +158,6 @@ class Habitacion(Model):
 
         # Agrega las estaciones a la grilla y los elimina de las posiciones disponibles
         for id, pos in enumerate(posiciones_estaciones):
-            print(pos)
             estacion = Estacion(int(f"{num_agentes}0{id}") + 1, self)
             self.grid.place_agent(estacion, pos)
             posiciones_disponibles.remove(pos)
@@ -143,7 +189,7 @@ class Habitacion(Model):
             pos_inicial_robots = [(1, 1)] * num_agentes
 
         for id in range(num_agentes):
-            robot = RobotLimpieza(id, self)
+            robot = RobotLimpieza(id, self, posiciones_estaciones)
             self.grid.place_agent(robot, pos_inicial_robots[id])
             self.schedule.add(robot)
 
