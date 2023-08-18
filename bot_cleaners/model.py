@@ -1,3 +1,9 @@
+# COSAS A TERMINAR
+# 1. Que los robots sean más inteligentes (podría bastar con aumentar grid pero de preferencia mejorar el algoritmo para su comunicación) - MEDIO
+# 2. Que los robots no se muevan a la misma celda - DIFICIL
+# 3. Que los robots, mientras van caminando hacia la estación y pisan una celda sucia, la limpien - FACIL
+# 4. No se si sea necesario, pero que cuando todo el grid esté limpio, se detenga la simulación/los robots - FACIL
+
 from mesa.model import Model
 from mesa.agent import Agent
 from mesa.space import MultiGrid
@@ -35,27 +41,48 @@ class RobotLimpieza(Agent):
         self.carga = 30
 
     # Método para obtener las celdas disponibles vecinas al robot en las que se puede mover
-    def celdas_disponibles_cercanas(self, radius=1):
+    def celdas_disponibles_cercanas(self, radius=1, excluir_estacion=False):
         celdas_disponibles = self.model.grid.get_neighbors(
             self.pos, moore=True, include_center=False, radius=radius)
 
         # De los vecinos, elimina los muebles, robots y estaciones de carga para quedarse con las celdas vacías
-        for vecino in celdas_disponibles:
-            if isinstance(vecino, (Mueble, RobotLimpieza, Estacion)):
-                celdas_disponibles.remove(vecino)
+        if excluir_estacion:
+            for vecino in celdas_disponibles:
+                if isinstance(vecino, (Mueble, RobotLimpieza)):
+                    celdas_disponibles.remove(vecino)
 
-        celdas_disponibles = [vecino for vecino in celdas_disponibles if not isinstance(vecino, (Mueble, RobotLimpieza, Estacion))]
+            celdas_disponibles = [vecino for vecino in celdas_disponibles if not isinstance(vecino, (Mueble, RobotLimpieza))]
 
-        return celdas_disponibles
+            return celdas_disponibles
+        else:
+            for vecino in celdas_disponibles:
+                if isinstance(vecino, (Mueble, RobotLimpieza, Estacion)):
+                    celdas_disponibles.remove(vecino)
+
+            celdas_disponibles = [vecino for vecino in celdas_disponibles if not isinstance(vecino, (Mueble, RobotLimpieza, Estacion))]
+
+            return celdas_disponibles
 
     # Método para calcular la distancia a una posición objetivo
-    @staticmethod
-    def calcular_distancias(lista_posiciones, celda_comparacion):
+    def calcular_distancias(self, celda_comparacion, lista_posiciones, estaciones=False, mov_estaciones=False):
         distancias = []
         for celda in lista_posiciones:
-            distancia = abs(celda_comparacion.pos[0] - celda.pos[0]) + abs(celda_comparacion.pos[1] - celda.pos[1])
-            distancias.append((distancia, celda))
+            if estaciones:
+                estacion = self.model.grid.get_cell_list_contents(celda)
+                if not estacion[0].ocupada:
+                    distancia = abs(self.pos[0] - celda[0]) + abs(self.pos[1] - celda[1])
+                    distancias.append((distancia, celda))
+            elif mov_estaciones:
+                distancia = abs(celda_comparacion[0] - celda.pos[0]) + abs(celda_comparacion[1] - celda.pos[1])
+                distancias.append((distancia, celda.pos))
+            else:
+                distancia = abs(celda_comparacion.pos[0] - celda.pos[0]) + abs(celda_comparacion.pos[1] - celda.pos[1])
+                distancias.append((distancia, celda))
 
+        if len(distancias) == 0:
+            self.sig_pos = self.pos
+            return None
+        
         # Buscar la celda sucia mas cercana
         distancias.sort(key=lambda tup: tup[0])
         return distancias[0][1]
@@ -63,10 +90,10 @@ class RobotLimpieza(Agent):
     # Método para limpiar una celda sucia al azar de las que se encuentran vecinas al robot
     def limpiar_una_celda(self, lista_de_celdas_sucias):
         # Obtiene la celda sucia más cercana
-        celda_sucia_cercana = self.calcular_distancias(lista_de_celdas_sucias, self)
+        celda_sucia_cercana = self.calcular_distancias(self, lista_de_celdas_sucias)
 
         # Se mueve a la estación más cercana, debe moverse de una celda a la vez  
-        celda_disponible = self.celdas_disponibles_cercanas(1)
+        celda_disponible = self.celdas_disponibles_cercanas()
 
         # Si la celda sucia más cercana está en las celdas disponibles, se mueve a ella
         if celda_sucia_cercana in celda_disponible:
@@ -74,8 +101,9 @@ class RobotLimpieza(Agent):
             celda_sucia_cercana.sucia = False
         else:
             # Si no, se mueve a la celda más cercana a la celda sucia más cercana
-            self.sig_pos = self.calcular_distancias(celda_disponible, celda_sucia_cercana).pos
-            
+            self.sig_pos = self.calcular_distancias(celda_sucia_cercana, celda_disponible).pos
+
+    # MEJORAR ESTE MÉTODO       
     # Método para seleccionar una nueva posición al azar en caso de que no haya celdas sucias
     def seleccionar_nueva_pos(self, lista_de_vecinos):
         self.sig_pos = self.random.choice(lista_de_vecinos).pos
@@ -86,25 +114,17 @@ class RobotLimpieza(Agent):
         return [vecino for vecino in lista_de_vecinos
                         if isinstance(vecino, Celda) and vecino.sucia]
 
+    # Cuando el robot tiene menos del 20% de carga, busca la estación más cercana
     def buscar_estacion(self):
-        # Calcula la distancia a cada estación
-        distancias = []
-        for pos in self.posiciones_estaciones:
-            estacion = self.model.grid.get_cell_list_contents(pos)
-            if not estacion[0].ocupada:
-                distancias.append((abs(self.pos[0] - pos[0]) + abs(self.pos[1] - pos[1]), pos))
+        # Buscamos la estación más cercana
+        self.buscando_estacion = self.calcular_distancias(self, self.posiciones_estaciones, True)
 
-        if len(distancias) == 0:
-            self.sig_pos = self.pos
-            return
-        # Ordena las distancias de menor a mayor
-        distancias.sort(key=lambda tup: tup[0])
+        # Prevenimos que haya error si todas las estaciones están ocupadas
+        if self.buscando_estacion is not None:        
+            estacion = self.model.grid.get_cell_list_contents(self.buscando_estacion)
+            estacion[0].ocupada = True
 
-        # Selecciona la estación más cercana
-        self.buscando_estacion = distancias[0][1]
-        estacion = self.model.grid.get_cell_list_contents(self.buscando_estacion)
-        estacion[0].ocupada = True
-
+    # Método para moverse a la estación más cercana
     def moverse_a_estacion(self):
         if self.pos == self.buscando_estacion:
             self.carga += 25
@@ -115,27 +135,11 @@ class RobotLimpieza(Agent):
                 self.buscando_estacion = None
             self.sig_pos = self.pos
         else:
-            # Se mueve a la estación más cercana, debe moverse de una celda a la vez
-            celda_disponible = self.model.grid.get_neighbors(
-                self.pos, moore=True, include_center=False)
+            # Calcula celdas disponibles pero excluyendo que las estaciones no se puedan pisar
+            celda_disponible = self.celdas_disponibles_cercanas(excluir_estacion=True)
 
-            # De los vecinos, elimina los muebles, robots y estaciones de carga para quedarse con las celdas vacías
-            for vecino in celda_disponible:
-                if isinstance(vecino, (Mueble, RobotLimpieza)):
-                    celda_disponible.remove(vecino)
-
-            celda_disponible = [vecino for vecino in celda_disponible if not isinstance(vecino, (Mueble, RobotLimpieza))]
-
-            # Obtiene las distancias de las celdas disponibles a la estación
-            distancias = []
-            for cell in celda_disponible:
-                distancias.append((abs(self.buscando_estacion[0] - cell.pos[0]) + abs(self.buscando_estacion[1] - cell.pos[1]), cell.pos))
-
-            # Ordena las distancias de menor a mayor
-            distancias.sort(key=lambda tup: tup[0])
-
-            # Selecciona la celda más cercana
-            self.sig_pos = distancias[0][1]
+            # Calcula la celda más cercana a la estación para moverse a ella
+            self.sig_pos = self.calcular_distancias(self.buscando_estacion, celda_disponible, mov_estaciones=True)
             
     # Step del sistema
     def step(self):
