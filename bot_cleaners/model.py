@@ -34,12 +34,48 @@ class RobotLimpieza(Agent):
         self.posiciones_estaciones = posiciones_estaciones
         self.carga = 30
 
+    # Método para obtener las celdas disponibles vecinas al robot en las que se puede mover
+    def celdas_disponibles_cercanas(self, radius=1):
+        celdas_disponibles = self.model.grid.get_neighbors(
+            self.pos, moore=True, include_center=False, radius=radius)
+
+        # De los vecinos, elimina los muebles, robots y estaciones de carga para quedarse con las celdas vacías
+        for vecino in celdas_disponibles:
+            if isinstance(vecino, (Mueble, RobotLimpieza, Estacion)):
+                celdas_disponibles.remove(vecino)
+
+        celdas_disponibles = [vecino for vecino in celdas_disponibles if not isinstance(vecino, (Mueble, RobotLimpieza, Estacion))]
+
+        return celdas_disponibles
+
+    # Método para calcular la distancia a una posición objetivo
+    @staticmethod
+    def calcular_distancias(lista_posiciones, celda_comparacion):
+        distancias = []
+        for celda in lista_posiciones:
+            distancia = abs(celda_comparacion.pos[0] - celda.pos[0]) + abs(celda_comparacion.pos[1] - celda.pos[1])
+            distancias.append((distancia, celda))
+
+        # Buscar la celda sucia mas cercana
+        distancias.sort(key=lambda tup: tup[0])
+        return distancias[0][1]
+
     # Método para limpiar una celda sucia al azar de las que se encuentran vecinas al robot
     def limpiar_una_celda(self, lista_de_celdas_sucias):
-        celda_a_limpiar = self.random.choice(lista_de_celdas_sucias)
-        celda_a_limpiar.sucia = False
-        self.sig_pos = celda_a_limpiar.pos
+        # Obtiene la celda sucia más cercana
+        celda_sucia_cercana = self.calcular_distancias(lista_de_celdas_sucias, self)
 
+        # Se mueve a la estación más cercana, debe moverse de una celda a la vez  
+        celda_disponible = self.celdas_disponibles_cercanas(1)
+
+        # Si la celda sucia más cercana está en las celdas disponibles, se mueve a ella
+        if celda_sucia_cercana in celda_disponible:
+            self.sig_pos = celda_sucia_cercana.pos
+            celda_sucia_cercana.sucia = False
+        else:
+            # Si no, se mueve a la celda más cercana a la celda sucia más cercana
+            self.sig_pos = self.calcular_distancias(celda_disponible, celda_sucia_cercana).pos
+            
     # Método para seleccionar una nueva posición al azar en caso de que no haya celdas sucias
     def seleccionar_nueva_pos(self, lista_de_vecinos):
         self.sig_pos = self.random.choice(lista_de_vecinos).pos
@@ -104,15 +140,7 @@ class RobotLimpieza(Agent):
     # Step del sistema
     def step(self):
         # Obtiene los vecinos mediante lo de mesa
-        vecinos = self.model.grid.get_neighbors(
-            self.pos, moore=True, include_center=False)
-
-        # De los vecinos, elimina los muebles, robots y estaciones de carga para quedarse con las celdas vacías
-        for vecino in vecinos:
-            if isinstance(vecino, (Mueble, RobotLimpieza, Estacion)):
-                vecinos.remove(vecino)
-
-        vecinos = [vecino for vecino in vecinos if not isinstance(vecino, (Mueble, RobotLimpieza))]
+        vecinos = self.celdas_disponibles_cercanas(3)
 
         # Obtiene las celdas sucias de los vecinos que quedaron
         celdas_sucias = self.buscar_celdas_sucia(vecinos)
@@ -121,7 +149,7 @@ class RobotLimpieza(Agent):
         if self.carga > 20 and not self.buscando_estacion:
             # Robot hace una acción dependiendo de si hay o no celdas sucias en los vecinos
             if len(celdas_sucias) == 0:
-                self.seleccionar_nueva_pos(vecinos)
+                self.seleccionar_nueva_pos(self.celdas_disponibles_cercanas(1))
             else:
                 self.limpiar_una_celda(celdas_sucias)
         else:
