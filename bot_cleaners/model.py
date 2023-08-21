@@ -1,8 +1,6 @@
 # COSAS A TERMINAR
 # 1. Que los robots sean más inteligentes (podría bastar con aumentar grid pero de preferencia mejorar el algoritmo para su comunicación) - MEDIO
-# 2. Que los robots no se muevan a la misma celda - DIFICIL
-# 3. Que los robots, mientras van caminando hacia la estación y pisan una celda sucia, la limpien - FACIL
-# 4. No se si sea necesario, pero que cuando todo el grid esté limpio, se detenga la simulación/los robots - FACIL
+# 3. No se si sea necesario, pero que cuando todo el grid esté limpio, se detenga la simulación/los robots - FACIL
 
 from mesa.model import Model
 from mesa.agent import Agent
@@ -38,7 +36,7 @@ class RobotLimpieza(Agent):
         self.movimientos = 0
         self.buscando_estacion = None
         self.posiciones_estaciones = posiciones_estaciones
-        self.carga = 30
+        self.carga = 100
 
     # Método para obtener las celdas disponibles vecinas al robot en las que se puede mover
     def celdas_disponibles_cercanas(self, radius=1, excluir_estacion=False):
@@ -74,7 +72,7 @@ class RobotLimpieza(Agent):
                     distancias.append((distancia, celda))
             elif mov_estaciones:
                 distancia = abs(celda_comparacion[0] - celda.pos[0]) + abs(celda_comparacion[1] - celda.pos[1])
-                distancias.append((distancia, celda.pos))
+                distancias.append((distancia, celda))
             else:
                 distancia = abs(celda_comparacion.pos[0] - celda.pos[0]) + abs(celda_comparacion.pos[1] - celda.pos[1])
                 distancias.append((distancia, celda))
@@ -99,6 +97,7 @@ class RobotLimpieza(Agent):
         if celda_sucia_cercana in celda_disponible:
             self.sig_pos = celda_sucia_cercana.pos
             celda_sucia_cercana.sucia = False
+            celda_sucia_cercana.pisada = True
         else:
             # Si no, se mueve a la celda más cercana a la celda sucia más cercana
             self.sig_pos = self.calcular_distancias(celda_sucia_cercana, celda_disponible).pos
@@ -139,12 +138,16 @@ class RobotLimpieza(Agent):
             celda_disponible = self.celdas_disponibles_cercanas(excluir_estacion=True)
 
             # Calcula la celda más cercana a la estación para moverse a ella
-            self.sig_pos = self.calcular_distancias(self.buscando_estacion, celda_disponible, mov_estaciones=True)
-            
+            celda_movimiento = self.calcular_distancias(self.buscando_estacion, celda_disponible, mov_estaciones=True)
+            if isinstance(celda_movimiento, Celda):
+                celda_movimiento.sucia = False
+                celda_movimiento.pisada = True
+            self.sig_pos = self.calcular_distancias(self.buscando_estacion, celda_disponible, mov_estaciones=True).pos
+    
     # Step del sistema
     def step(self):
         # Obtiene los vecinos mediante lo de mesa
-        vecinos = self.celdas_disponibles_cercanas(3)
+        vecinos = self.celdas_disponibles_cercanas(10)
 
         # Obtiene las celdas sucias de los vecinos que quedaron
         celdas_sucias = self.buscar_celdas_sucia(vecinos)
@@ -153,7 +156,7 @@ class RobotLimpieza(Agent):
         if self.carga > 20 and not self.buscando_estacion:
             # Robot hace una acción dependiendo de si hay o no celdas sucias en los vecinos
             if len(celdas_sucias) == 0:
-                self.seleccionar_nueva_pos(self.celdas_disponibles_cercanas(1))
+                self.seleccionar_nueva_pos(self.celdas_disponibles_cercanas())
             else:
                 self.limpiar_una_celda(celdas_sucias)
         else:
@@ -247,16 +250,16 @@ class Habitacion(Model):
 
     def step(self):
         self.datacollector.collect(self)
-
         self.schedule.step()
+        if self.todoLimpio():
+            self.running = False
 
     def todoLimpio(self):
-        for (content, x, y) in self.grid.coord_iter():
+        for (content) in self.grid.coord_iter():
             for obj in content:
-                if isinstance(obj, Celda) and obj.sucia:
+                if isinstance(obj[0], Celda) and obj[0].sucia:
                     return False
         return True
-
 
 def get_grid(model: Model) -> np.ndarray:
     """
@@ -275,10 +278,8 @@ def get_grid(model: Model) -> np.ndarray:
                 grid[x][y] = int(obj.sucia)
     return grid
 
-
 def get_cargas(model: Model):
     return [(agent.unique_id, agent.carga) for agent in model.schedule.agents]
-
 
 def get_sucias(model: Model) -> int:
     """
@@ -293,7 +294,6 @@ def get_sucias(model: Model) -> int:
             if isinstance(obj, Celda) and obj.sucia:
                 sum_sucias += 1
     return sum_sucias / model.num_celdas_sucias
-
 
 def get_movimientos(agent: Agent) -> dict:
     if isinstance(agent, RobotLimpieza):
