@@ -1,7 +1,3 @@
-# COSAS A TERMINAR
-# 1. Que los robots sean más inteligentes (podría bastar con aumentar grid pero de preferencia mejorar el algoritmo para su comunicación) - MEDIO
-# 3. No se si sea necesario, pero que cuando todo el grid esté limpio, se detenga la simulación/los robots - FACIL
-
 from mesa.model import Model
 from mesa.agent import Agent
 from mesa.space import MultiGrid
@@ -260,6 +256,9 @@ class Habitacion(Model):
                 if isinstance(obj[0], Celda) and obj[0].sucia:
                     return False
         return True
+    
+    def grafica(self):
+        self.datacollector.get_model_vars_dataframe().plot()
 
 def get_grid(model: Model) -> np.ndarray:
     """
