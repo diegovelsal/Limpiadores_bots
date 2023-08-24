@@ -1,7 +1,3 @@
-# COSAS A TERMINAR
-# 1. Que los robots sean más inteligentes (podría bastar con aumentar grid pero de preferencia mejorar el algoritmo para su comunicación) - MEDIO
-# 2. Que los robots no se muevan a la misma celda - DIFICIL
-
 from mesa.model import Model
 from mesa.agent import Agent
 from mesa.space import MultiGrid
@@ -33,11 +29,11 @@ class RobotLimpieza(Agent):
     def __init__(self, unique_id, model, posiciones_estaciones, cantidad_suciedad):
         super().__init__(unique_id, model)
         self.sig_pos = None
-        self.movimientos = 0
         self.buscando_estacion = None
         self.posiciones_estaciones = posiciones_estaciones
         self.cantidad_suciedad = cantidad_suciedad
         self.carga = np.random.randint(30, 100)
+        self.movimientos = 0
 
     def cuadrante_limpieza(self, posicion):
         if posicion[0] < int(self.model.grid.width/2):
@@ -121,18 +117,13 @@ class RobotLimpieza(Agent):
     # Método para seleccionar una nueva posición al azar en caso de que no haya celdas sucias
     def seleccionar_nueva_pos(self, lista_de_vecinos):
         maximo = max(self.cantidad_suciedad)
-        print(self.cantidad_suciedad)
         if maximo == self.cantidad_suciedad[0]:
-            print("Suciedad cuadro 1")
             self.sig_pos = self.calcular_distancias((0,19), lista_de_vecinos, mov_estaciones=True).pos
         elif maximo == self.cantidad_suciedad[1]:
-            print("Suciedad cuadro 2")
             self.sig_pos = self.calcular_distancias((19,19), lista_de_vecinos, mov_estaciones=True).pos
         elif maximo == self.cantidad_suciedad[2]:
-            print("Suciedad cuadro 3")
             self.sig_pos = self.calcular_distancias((0,0), lista_de_vecinos, mov_estaciones=True).pos
         else:
-            print("Suciedad cuadro 4")
             self.sig_pos = self.calcular_distancias((19,0), lista_de_vecinos, mov_estaciones=True).pos
 
     # Regresa una lista de celdas sucias vecinas al robot
@@ -217,6 +208,7 @@ class Habitacion(Model):
         self.num_agentes = num_agentes # Número de robots
         self.porc_celdas_sucias = porc_celdas_sucias # Porcentaje de celdas sucias
         self.porc_muebles = porc_muebles # Porcentaje de muebles
+        self.usos_estacion = 0
 
         # Creación de la grilla y el scheduler
         self.grid = MultiGrid(M, N, False)
@@ -260,7 +252,6 @@ class Habitacion(Model):
             suciedad = pos in posiciones_celdas_sucias
             celda = Celda(int(f"{num_agentes}{id}") + 1, self, suciedad)
             if suciedad:
-                print(pos)
                 if pos[0] < int(M/2):
                     if pos[1] >= int(N/2):
                         cantidad_suciedad[0] += 1
@@ -271,7 +262,6 @@ class Habitacion(Model):
                         cantidad_suciedad[1] += 1
                     else:
                         cantidad_suciedad[3] += 1
-                print(cantidad_suciedad)
             self.grid.place_agent(celda, pos)
 
         # Posicionamiento de agentes robot
@@ -293,6 +283,11 @@ class Habitacion(Model):
     def step(self):
         self.datacollector.collect(self)
         self.schedule.step()
+        for agent in self.schedule.agents:
+            if isinstance(agent, RobotLimpieza):
+                if agent.buscando_estacion is None and agent.carga == 100:
+                    self.usos_estacion += 1
+
         if self.todoLimpio():
             self.running = False
 

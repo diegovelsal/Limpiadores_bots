@@ -1,4 +1,5 @@
 import mesa
+from mesa.visualization.modules import CanvasGrid, TextElement
 
 from .model import Habitacion, RobotLimpieza, Celda, Mueble, Estacion
 
@@ -34,6 +35,15 @@ chart_celdas = mesa.visualization.ChartModule(
     data_collector_name="datacollector"
 )
 
+class Contadores(TextElement):
+    def __init__(self):
+        super().__init__()
+        self.movimientos = 0
+
+    def render(self, model):
+        self.movimientos = sum(agent.movimientos for agent in model.schedule.agents if isinstance(agent, RobotLimpieza))
+        return f"Usos de Estación de Carga: {model.usos_estacion} | Movimientos Totales: {self.movimientos}"
+    
 model_params = {
     "num_agentes": mesa.visualization.Slider(
         "Número de Robots",
@@ -55,7 +65,7 @@ model_params = {
         "Porcentaje de Muebles",
         0.1,
         0.0,
-        0.25,
+        0.20,
         0.01,
         description="Selecciona el porcentaje de muebles",
     ),
@@ -70,6 +80,6 @@ model_params = {
 }
 
 server = mesa.visualization.ModularServer(
-    Habitacion, [grid, chart_celdas],
+    Habitacion, [grid, chart_celdas, Contadores()],
     "botCleaner", model_params, 8521
 )
