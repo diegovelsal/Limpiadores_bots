@@ -1,3 +1,7 @@
+# COSAS A TERMINAR
+# 1. Que los robots sean más inteligentes (podría bastar con aumentar grid pero de preferencia mejorar el algoritmo para su comunicación) - MEDIO
+# 2. Que los robots no se muevan a la misma celda - DIFICIL
+
 from mesa.model import Model
 from mesa.agent import Agent
 from mesa.space import MultiGrid
@@ -26,13 +30,26 @@ class Estacion(Agent):
 # Clase Robot 
 class RobotLimpieza(Agent):
     # Inicialización del robot
-    def __init__(self, unique_id, model, posiciones_estaciones):
+    def __init__(self, unique_id, model, posiciones_estaciones, cantidad_suciedad):
         super().__init__(unique_id, model)
         self.sig_pos = None
         self.movimientos = 0
         self.buscando_estacion = None
         self.posiciones_estaciones = posiciones_estaciones
-        self.carga = 100
+        self.cantidad_suciedad = cantidad_suciedad
+        self.carga = np.random.randint(30, 100)
+
+    def cuadrante_limpieza(self, posicion):
+        if posicion[0] < int(self.model.grid.width/2):
+            if posicion[1] >= int(self.model.grid.height/2):
+                self.cantidad_suciedad[0]-=1
+            else:
+                self.cantidad_suciedad[2]-=1
+        else:
+            if posicion[1] >= int(self.model.grid.height/2):
+                self.cantidad_suciedad[1]-=1
+            else:
+                self.cantidad_suciedad[3]-=1
 
     # Método para obtener las celdas disponibles vecinas al robot en las que se puede mover
     def celdas_disponibles_cercanas(self, radius=1, excluir_estacion=False):
@@ -60,6 +77,7 @@ class RobotLimpieza(Agent):
     # Método para calcular la distancia a una posición objetivo
     def calcular_distancias(self, celda_comparacion, lista_posiciones, estaciones=False, mov_estaciones=False):
         distancias = []
+        #movimiento_robot = False
         for celda in lista_posiciones:
             if estaciones:
                 estacion = self.model.grid.get_cell_list_contents(celda)
@@ -70,6 +88,7 @@ class RobotLimpieza(Agent):
                 distancia = abs(celda_comparacion[0] - celda.pos[0]) + abs(celda_comparacion[1] - celda.pos[1])
                 distancias.append((distancia, celda))
             else:
+                #movimiento_robot = True
                 distancia = abs(celda_comparacion.pos[0] - celda.pos[0]) + abs(celda_comparacion.pos[1] - celda.pos[1])
                 distancias.append((distancia, celda))
 
@@ -93,7 +112,7 @@ class RobotLimpieza(Agent):
         if celda_sucia_cercana in celda_disponible:
             self.sig_pos = celda_sucia_cercana.pos
             celda_sucia_cercana.sucia = False
-            celda_sucia_cercana.pisada = True
+            self.cuadrante_limpieza(celda_sucia_cercana.pos)
         else:
             # Si no, se mueve a la celda más cercana a la celda sucia más cercana
             self.sig_pos = self.calcular_distancias(celda_sucia_cercana, celda_disponible).pos
@@ -101,7 +120,20 @@ class RobotLimpieza(Agent):
     # MEJORAR ESTE MÉTODO       
     # Método para seleccionar una nueva posición al azar en caso de que no haya celdas sucias
     def seleccionar_nueva_pos(self, lista_de_vecinos):
-        self.sig_pos = self.random.choice(lista_de_vecinos).pos
+        maximo = max(self.cantidad_suciedad)
+        print(self.cantidad_suciedad)
+        if maximo == self.cantidad_suciedad[0]:
+            print("Suciedad cuadro 1")
+            self.sig_pos = self.calcular_distancias((0,19), lista_de_vecinos, mov_estaciones=True).pos
+        elif maximo == self.cantidad_suciedad[1]:
+            print("Suciedad cuadro 2")
+            self.sig_pos = self.calcular_distancias((19,19), lista_de_vecinos, mov_estaciones=True).pos
+        elif maximo == self.cantidad_suciedad[2]:
+            print("Suciedad cuadro 3")
+            self.sig_pos = self.calcular_distancias((0,0), lista_de_vecinos, mov_estaciones=True).pos
+        else:
+            print("Suciedad cuadro 4")
+            self.sig_pos = self.calcular_distancias((19,0), lista_de_vecinos, mov_estaciones=True).pos
 
     # Regresa una lista de celdas sucias vecinas al robot
     @staticmethod
@@ -135,15 +167,15 @@ class RobotLimpieza(Agent):
 
             # Calcula la celda más cercana a la estación para moverse a ella
             celda_movimiento = self.calcular_distancias(self.buscando_estacion, celda_disponible, mov_estaciones=True)
-            if isinstance(celda_movimiento, Celda):
+            if isinstance(celda_movimiento, Celda) and celda_movimiento.sucia:
                 celda_movimiento.sucia = False
-                celda_movimiento.pisada = True
-            self.sig_pos = self.calcular_distancias(self.buscando_estacion, celda_disponible, mov_estaciones=True).pos
+                self.cuadrante_limpieza(celda_movimiento.pos)
+            self.sig_pos = celda_movimiento.pos
     
     # Step del sistema
     def step(self):
         # Obtiene los vecinos mediante lo de mesa
-        vecinos = self.celdas_disponibles_cercanas(10)
+        vecinos = self.celdas_disponibles_cercanas(5)
 
         # Obtiene las celdas sucias de los vecinos que quedaron
         celdas_sucias = self.buscar_celdas_sucia(vecinos)
@@ -169,7 +201,7 @@ class RobotLimpieza(Agent):
         if self.pos != self.sig_pos:
             self.movimientos += 1
             self.carga -= 1
-
+        
         self.model.grid.move_agent(self, self.sig_pos)
 
 # Modelo del sistema
@@ -219,6 +251,7 @@ class Habitacion(Model):
             posiciones_disponibles.remove(pos)
 
         # Posicionamiento de celdas sucias de la misma forma que los muebles
+        cantidad_suciedad = [0,0,0,0]
         self.num_celdas_sucias = int(M * N * porc_celdas_sucias)
         posiciones_celdas_sucias = self.random.sample(
             posiciones_disponibles, k=self.num_celdas_sucias)
@@ -226,6 +259,19 @@ class Habitacion(Model):
         for id, pos in enumerate(posiciones_disponibles):
             suciedad = pos in posiciones_celdas_sucias
             celda = Celda(int(f"{num_agentes}{id}") + 1, self, suciedad)
+            if suciedad:
+                print(pos)
+                if pos[0] < int(M/2):
+                    if pos[1] >= int(N/2):
+                        cantidad_suciedad[0] += 1
+                    else:
+                        cantidad_suciedad[2] += 1
+                else:
+                    if pos[1] >= int(N/2):
+                        cantidad_suciedad[1] += 1
+                    else:
+                        cantidad_suciedad[3] += 1
+                print(cantidad_suciedad)
             self.grid.place_agent(celda, pos)
 
         # Posicionamiento de agentes robot
@@ -235,7 +281,7 @@ class Habitacion(Model):
             pos_inicial_robots = [(1, 1)] * num_agentes
 
         for id in range(num_agentes):
-            robot = RobotLimpieza(id, self, posiciones_estaciones)
+            robot = RobotLimpieza(id, self, posiciones_estaciones, cantidad_suciedad)
             self.grid.place_agent(robot, pos_inicial_robots[id])
             self.schedule.add(robot)
 
